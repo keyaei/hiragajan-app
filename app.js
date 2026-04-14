@@ -33,7 +33,6 @@ function canMakeWord(word, counts) {
       return false;
     }
   }
-
   return true;
 }
 
@@ -52,13 +51,13 @@ function removeWordFromCounts(word, baseCounts) {
 
 function countsToChars(counts) {
   const chars = [];
+  const keys = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ja'));
 
-  for (const ch of Object.keys(counts)) {
+  for (const ch of keys) {
     for (let i = 0; i < counts[ch]; i++) {
       chars.push(ch);
     }
   }
-
   return chars;
 }
 
@@ -68,30 +67,22 @@ function uniqueWords(words) {
 
 function sortWords(words) {
   return [...words].sort((a, b) => {
-    if (b.length !== a.length) {
-      return b.length - a.length;
-    }
+    if (b.length !== a.length) return b.length - a.length;
     return a.localeCompare(b, 'ja');
   });
 }
 
-function getAvailableWords(dictionary, chars) {
-  const counts = countChars(chars);
-  const sourceWords = Array.isArray(dictionary.words) ? dictionary.words : [];
-
-  const words = sourceWords.filter((word) => {
-    return typeof word === 'string' && canMakeWord(word, counts);
-  });
-
-  return sortWords(uniqueWords(words));
+function getSourceWords(dictionary) {
+  return Array.isArray(dictionary.words)
+    ? dictionary.words.filter((w) => typeof w === 'string' && w.length >= 2)
+    : [];
 }
 
-function groupWords(words) {
-  return {
-    two: sortWords(words.filter((w) => w.length === 2)),
-    three: sortWords(words.filter((w) => w.length === 3)),
-    fourPlus: sortWords(words.filter((w) => w.length >= 4))
-  };
+function getAvailableWords(dictionary, chars) {
+  const counts = countChars(chars);
+  const sourceWords = getSourceWords(dictionary);
+  const words = sourceWords.filter((word) => canMakeWord(word, counts));
+  return sortWords(uniqueWords(words));
 }
 
 function getPairCandidates(chars) {
@@ -109,10 +100,7 @@ function getPairCandidates(chars) {
 
 function canAgari(chars, dictionary) {
   const counts = countChars(chars);
-  const words = (dictionary.words || []).filter((w) => {
-    return typeof w === 'string' && w.length >= 2;
-  });
-
+  const words = getSourceWords(dictionary);
   const memo = new Map();
 
   function keyFromState(countsObj, melds, pairUsed) {
@@ -132,16 +120,14 @@ function canAgari(chars, dictionary) {
     memo.set(key, true);
 
     if (remain === 0) {
-      if (melds === 4 && pairUsed) {
-        return path;
-      }
+      if (melds === 4 && pairUsed) return path;
       return null;
     }
 
     if (melds > 4) return null;
 
     if (!pairUsed) {
-      for (const ch of Object.keys(currentCounts)) {
+      for (const ch of Object.keys(currentCounts).sort((a, b) => a.localeCompare(b, 'ja'))) {
         if (currentCounts[ch] >= 2) {
           const next = { ...currentCounts };
           next[ch] -= 2;
@@ -153,7 +139,6 @@ function canAgari(chars, dictionary) {
             true,
             [...path, { type: 'pair', value: ch + ch }]
           );
-
           if (result) return result;
         }
       }
@@ -171,7 +156,6 @@ function canAgari(chars, dictionary) {
         pairUsed,
         [...path, { type: 'meld', value: word }]
       );
-
       if (result) return result;
     }
 
@@ -181,82 +165,319 @@ function canAgari(chars, dictionary) {
   return dfs(counts, 0, false, []);
 }
 
+function formatAgari(agariPath) {
+  if (!agariPath) {
+    return 'まだ上がり形ではありません';
+  }
+
+  return agariPath
+    .map((x) => `${x.type === 'pair' ? '雀頭' : '面子'}: ${x.value}`)
+    .join('\n');
+}
+
+function analyzeShape(chars, dictionary) {
+  const words = getAvailableWords(dictionary, chars);
+  const pairs = getPairCandidates(chars);
+
+  let meld2 = 0;
+  let meld3 = 0;
+  let meld4p = 0;
+
+  for (const w of words) {
+    if (w.length === 2) meld2++;
+    else if (w.length === 3) meld3++;
+    else if (w.length >= 4) meld4p++;
+  }
+
+  const agari = canAgari(chars, dictionary);
+
+  const score =
+    (agari ? 100000 : 0) +
+    meld4p * 120 +
+    meld3 * 70 +
+    meld2 * 20 +
+    pairs.length * 45;
+
+  return {
+    words,
+    pairs,
+    meld2,
+    meld3,
+    meld4p,
+    agari,
+    score
+  };
+}
+
 function evaluateDiscards(chars, dictionary) {
   const results = [];
 
   for (let i = 0; i < chars.length; i++) {
     const discard = chars[i];
     const nextChars = chars.slice(0, i).concat(chars.slice(i + 1));
-    const words = getAvailableWords(dictionary, nextChars);
-    const grouped = groupWords(words);
-
-    const score =
-      grouped.fourPlus.length * 4 +
-      grouped.three.length * 3 +
-      grouped.two.length * 1;
+    const shape = analyzeShape(nextChars, dictionary);
 
     results.push({
       discard,
-      score,
-      total: words.length,
-      fourPlus: grouped.fourPlus.length,
-      three: grouped.three.length,
-      two: grouped.two.length
+      score: shape.score,
+      meld4p: shape.meld4p,
+      meld3: shape.meld3,
+      meld2: shape.meld2,
+      pairs: shape.pairs.length
     });
   }
 
-  const dedup = [];
-  const seen = new Set();
-
+  const bestByDiscard = new Map();
   for (const r of results) {
-    if (seen.has(r.discard)) continue;
-    seen.add(r.discard);
-    dedup.push(r);
-  }
-
-  dedup.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (b.fourPlus !== a.fourPlus) return b.fourPlus - a.fourPlus;
-    if (b.three !== a.three) return b.three - a.three;
-    if (b.two !== a.two) return b.two - a.two;
-    return a.discard.localeCompare(b.discard, 'ja');
-  });
-
-  return dedup;
-}
-
-function getCallCandidates(handChars, discards, dictionary) {
-  const results = [];
-  const uniqueDiscards = [...new Set(discards)];
-
-  for (const d of uniqueDiscards) {
-    const testChars = [...handChars, d];
-    const words = getAvailableWords(dictionary, testChars).filter((w) => w.length >= 3);
-
-    const usable = words.filter((word) => {
-      const need = {};
-      for (const ch of word) {
-        need[ch] = (need[ch] || 0) + 1;
-      }
-      return (need[d] || 0) >= 1;
-    });
-
-    if (usable.length > 0) {
-      results.push({
-        discard: d,
-        words: usable.slice(0, 10)
-      });
+    const prev = bestByDiscard.get(r.discard);
+    if (!prev || r.score > prev.score) {
+      bestByDiscard.set(r.discard, r);
     }
   }
 
-  return results.sort((a, b) => a.discard.localeCompare(b.discard, 'ja'));
+  return [...bestByDiscard.values()].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.meld4p !== a.meld4p) return b.meld4p - a.meld4p;
+    if (b.meld3 !== a.meld3) return b.meld3 - a.meld3;
+    if (b.pairs !== a.pairs) return b.pairs - a.pairs;
+    return a.discard.localeCompare(b.discard, 'ja');
+  });
 }
 
-function formatSection(title, lines) {
-  if (!lines || lines.length === 0) {
-    return `${title}\nなし`;
+function makeDiscardReason(best, second) {
+  if (!best) return '候補なし';
+
+  const parts = [];
+  parts.push(`4文字以上:${best.meld4p}`);
+  parts.push(`3文字:${best.meld3}`);
+  parts.push(`2文字:${best.meld2}`);
+  parts.push(`雀頭候補:${best.pairs}`);
+
+  if (second && best.score > second.score) {
+    parts.push('次点より評価が高い');
   }
-  return `${title}\n${lines.join('\n')}`;
+
+  return parts.join(' / ');
+}
+
+function getWaitSuggestions(remainingChars, dictionary, maxNeed = 2) {
+  const remainCounts = countChars(remainingChars);
+  const sourceWords = getSourceWords(dictionary);
+  const candidates = [];
+
+  for (const word of sourceWords) {
+    const need = {};
+    for (const ch of word) {
+      need[ch] = (need[ch] || 0) + 1;
+    }
+
+    const missing = [];
+
+    for (const ch of Object.keys(need)) {
+      const lack = need[ch] - (remainCounts[ch] || 0);
+      if (lack > 0) {
+        for (let i = 0; i < lack; i++) {
+          missing.push(ch);
+        }
+      }
+    }
+
+    let usedCount = 0;
+    for (const ch of word) {
+      if ((remainCounts[ch] || 0) > 0) {
+        usedCount++;
+      }
+    }
+
+    if (usedCount === 0) continue;
+    if (missing.length === 0 || missing.length > maxNeed) continue;
+
+    candidates.push({
+      word,
+      need: missing
+    });
+  }
+
+  const dedup = new Map();
+  for (const c of candidates) {
+    const key = `${c.word}|${c.need.join('')}`;
+    if (!dedup.has(key)) {
+      dedup.set(key, c);
+    }
+  }
+
+  return [...dedup.values()].sort((a, b) => {
+    if (a.need.length !== b.need.length) return a.need.length - b.need.length;
+    if (b.word.length !== a.word.length) return b.word.length - a.word.length;
+    return a.word.localeCompare(b.word, 'ja');
+  });
+}
+
+function getGroupingCandidates(chars, dictionary, limit = 3) {
+  const counts = countChars(chars);
+  const allWords = getSourceWords(dictionary).filter((w) => canMakeWord(w, counts));
+  const words = sortWords(uniqueWords(allWords));
+  const results = [];
+  const seen = new Set();
+
+  function scoreMelds(melds) {
+    let score = 0;
+    for (const w of melds) {
+      if (w.length >= 4) score += 100;
+      else if (w.length === 3) score += 60;
+      else score += 20;
+    }
+    return score;
+  }
+
+  function pushResult(melds, currentCounts) {
+    const remainingChars = countsToChars(currentCounts);
+    const signature =
+      melds.slice().sort((a, b) => a.localeCompare(b, 'ja')).join('|') +
+      '__' +
+      remainingChars.join('');
+
+    if (seen.has(signature)) return;
+    seen.add(signature);
+
+    results.push({
+      melds: melds.slice().sort((a, b) => {
+        if (b.length !== a.length) return b.length - a.length;
+        return a.localeCompare(b, 'ja');
+      }),
+      remainingChars,
+      score: scoreMelds(melds)
+    });
+  }
+
+  function dfs(currentCounts, melds, startIndex) {
+    pushResult(melds, currentCounts);
+
+    if (results.length > 120) return;
+    if (melds.length >= 4) return;
+
+    for (let i = startIndex; i < words.length; i++) {
+      const word = words[i];
+      if (!canMakeWord(word, currentCounts)) continue;
+
+      const next = removeWordFromCounts(word, currentCounts);
+      if (!next) continue;
+
+      dfs(next, [...melds, word], i);
+    }
+  }
+
+  dfs(counts, [], 0);
+
+  const ranked = results
+    .filter((r) => r.melds.length > 0)
+    .sort((a, b) => {
+      if (b.melds.length !== a.melds.length) return b.melds.length - a.melds.length;
+      if (a.remainingChars.length !== b.remainingChars.length) return a.remainingChars.length - b.remainingChars.length;
+      if (b.score !== a.score) return b.score - a.score;
+      return a.melds.join('').localeCompare(b.melds.join(''), 'ja');
+    })
+    .slice(0, limit)
+    .map((r) => {
+      const waits = getWaitSuggestions(r.remainingChars, dictionary, 2).slice(0, 10);
+      return {
+        melds: r.melds,
+        remainingChars: r.remainingChars,
+        waits
+      };
+    });
+
+  return ranked;
+}
+
+function evaluateCalls(handChars, discards, dictionary, isOpenHand) {
+  const uniqueDiscards = [...new Set(discards)];
+  const decisions = [];
+  const currentShape = analyzeShape(handChars, dictionary);
+
+  for (const d of uniqueDiscards) {
+    // 鳴いているならロン不可
+    if (!isOpenHand) {
+      const ronChars = [...handChars, d];
+      const ronAgari = canAgari(ronChars, dictionary);
+      if (ronAgari) {
+        decisions.push({
+          discard: d,
+          action: 'ロン',
+          word: '',
+          nextDiscard: ''
+        });
+        continue;
+      }
+    }
+
+    const testChars = [...handChars, d];
+    const words = getAvailableWords(dictionary, testChars).filter((w) => w.includes(d));
+
+    let bestAction = {
+      discard: d,
+      action: '何もしない',
+      word: '',
+      nextDiscard: '',
+      score: currentShape.score
+    };
+
+    for (const word of words) {
+      let actionName = '';
+      if (word.length === 3) {
+        actionName = 'ポン';
+      } else if (word.length >= 4) {
+        actionName = 'カン';
+      } else {
+        continue;
+      }
+
+      const counts = countChars(testChars);
+      if (!canMakeWord(word, counts)) continue;
+
+      const remainingCounts = removeWordFromCounts(word, counts);
+      if (!remainingCounts) continue;
+
+      const remainingChars = countsToChars(remainingCounts);
+
+      // 鳴いた後は1枚切る前提で比較
+      let afterScore;
+      let nextDiscard = 'なし';
+
+      if (remainingChars.length > 0) {
+        const discardRanks = evaluateDiscards(remainingChars, dictionary);
+        const bestDiscard = discardRanks[0];
+        nextDiscard = bestDiscard ? bestDiscard.discard : 'なし';
+        afterScore = bestDiscard ? bestDiscard.score : analyzeShape(remainingChars, dictionary).score;
+      } else {
+        afterScore = 999999;
+      }
+
+      // 鳴きは厳しめに評価
+      const openPenalty = isOpenHand ? 0 : 120;
+      const adjustedScore = afterScore - openPenalty;
+
+      // 「本当におすすめ」のみにしたいので、現状より十分良いときだけ採用
+      const mustImproveBy = 50;
+
+      if (
+        adjustedScore > bestAction.score &&
+        adjustedScore >= currentShape.score + mustImproveBy
+      ) {
+        bestAction = {
+          discard: d,
+          action: actionName,
+          word,
+          nextDiscard,
+          score: adjustedScore
+        };
+      }
+    }
+
+    decisions.push(bestAction);
+  }
+
+  return decisions.sort((a, b) => a.discard.localeCompare(b.discard, 'ja'));
 }
 
 document.getElementById('judgeBtn').addEventListener('click', async () => {
@@ -268,6 +489,8 @@ document.getElementById('judgeBtn').addEventListener('click', async () => {
     const discards = normalizeChars(document.getElementById('discards').value);
     const isOpenHand = document.getElementById('isOpenHand').checked;
 
+    const hasDraw = draw.length > 0;
+    const hasDiscards = discards.length > 0;
     const allChars = [...hand, ...draw];
 
     if (allChars.length === 0) {
@@ -276,54 +499,103 @@ document.getElementById('judgeBtn').addEventListener('click', async () => {
     }
 
     const dictionary = await loadDictionary();
+    const handShape = analyzeShape(allChars, dictionary);
+    const groupingCandidates = getGroupingCandidates(allChars, dictionary, 3);
 
-    const words = getAvailableWords(dictionary, allChars);
-    const grouped = groupWords(words);
-    const pairs = getPairCandidates(allChars);
-    const agariPath = canAgari(allChars, dictionary);
-    const discardRanks = evaluateDiscards(allChars, dictionary);
-    const callCandidates = getCallCandidates(hand, discards, dictionary);
+    const lines = [];
+    lines.push(`手牌: ${hand.join(' ') || 'なし'}`);
 
-    const discardLines = discardRanks.slice(0, 10).map((r, index) => {
-      return `${index + 1}. ${r.discard} を切る  score=${r.score} / 4文字以上:${r.fourPlus} / 3文字:${r.three} / 2文字:${r.two}`;
-    });
-
-    const callLines = callCandidates.map((c) => {
-      return `${c.discard} で鳴ける候補: ${c.words.join('、')}`;
-    });
-
-    let agariLines;
-    if (agariPath) {
-      agariLines = agariPath.map((x) => {
-        return `${x.type === 'pair' ? '雀頭' : '面子'}: ${x.value}`;
-      });
-    } else {
-      agariLines = ['まだ上がり形ではありません'];
+    if (hasDraw) {
+      lines.push(`自摸牌: ${draw.join(' ')}`);
     }
 
-    const lines = [
-      `手牌: ${hand.join(' ') || 'なし'}`,
-      `自摸牌: ${draw.join(' ') || 'なし'}`,
-      `使用可能文字: ${allChars.join(' ') || 'なし'}`,
-      `相手の捨て牌: ${discards.join(' ') || 'なし'}`,
-      `鳴き状態: ${isOpenHand ? 'あり（ツモ専）' : 'なし'}`,
-      '',
-      formatSection('ツモ上がり判定', agariLines),
-      '',
-      formatSection('鳴き候補', callLines),
-      '',
-      formatSection('切る候補ランキング', discardLines),
-      '',
-      `作れそうな単語合計: ${words.length}件`,
-      '',
-      formatSection(`4文字以上（${grouped.fourPlus.length}件）`, grouped.fourPlus.slice(0, 50)),
-      '',
-      formatSection(`3文字（${grouped.three.length}件）`, grouped.three.slice(0, 50)),
-      '',
-      formatSection(`2文字（${grouped.two.length}件）`, grouped.two.slice(0, 50)),
-      '',
-      formatSection('雀頭候補', pairs)
-    ];
+    if (hasDiscards) {
+      lines.push(`相手の捨て牌: ${discards.join(' ')}`);
+    }
+
+    lines.push(`鳴き状態: ${isOpenHand ? 'あり（ツモ専）' : 'なし'}`);
+    lines.push('');
+
+    lines.push('【ツモ上がり判定】');
+    if (hasDraw && handShape.agari) {
+      lines.push('ツモ');
+      lines.push('');
+      lines.push('【上がり形】');
+      lines.push(...handShape.agari.map((x) => `${x.type === 'pair' ? '雀頭' : '面子'}: ${x.value}`));
+    } else {
+      lines.push(formatAgari(handShape.agari));
+      lines.push('');
+
+      if (groupingCandidates.length > 0) {
+        const best = groupingCandidates[0];
+        const completeLines = best.melds.length ? best.melds : ['なし'];
+        const incompleteLines = best.remainingChars.length
+          ? [best.remainingChars.join('') + '（未完成）']
+          : ['なし'];
+        const waitLines = best.waits.length
+          ? best.waits.map((w) => `${w.need.join('・')} → ${w.word}`)
+          : ['なし'];
+
+        lines.push('【今できている面子候補】');
+        lines.push(...completeLines);
+        lines.push('');
+        lines.push('【未完成候補】');
+        lines.push(...incompleteLines);
+        lines.push('');
+        lines.push('【何が来たら完成しやすいか】');
+        lines.push(...waitLines);
+      }
+
+      if (hasDraw) {
+        const discardRanks = evaluateDiscards(allChars, dictionary);
+        const bestDiscard = discardRanks[0];
+        const secondDiscard = discardRanks[1];
+
+        lines.push('');
+        lines.push('【自摸時のおすすめ打牌】');
+        lines.push(bestDiscard ? `1位: ${bestDiscard.discard} を切る` : '1位: 候補なし');
+        lines.push(secondDiscard ? `2位: ${secondDiscard.discard} を切る` : '2位: 候補なし');
+        lines.push(`理由: ${makeDiscardReason(bestDiscard, secondDiscard)}`);
+      }
+    }
+
+    if (groupingCandidates.length > 0) {
+      lines.push('');
+      groupingCandidates.forEach((candidate, index) => {
+        const waitText = candidate.waits.length
+          ? candidate.waits.map((w) => `${w.need.join('・')} → ${w.word}`).join(', ')
+          : 'なし';
+
+        lines.push(`【組み方候補${index + 1}】`);
+        lines.push(`完成面子: ${candidate.melds.join(' / ') || 'なし'}`);
+        lines.push(`余り: ${candidate.remainingChars.length ? candidate.remainingChars.join('') : 'なし'}`);
+        lines.push(`待ち: ${waitText}`);
+        if (index !== groupingCandidates.length - 1) {
+          lines.push('');
+        }
+      });
+    }
+
+    if (hasDiscards) {
+      const callDecisions = evaluateCalls(hand, discards, dictionary, isOpenHand);
+
+      lines.push('');
+      lines.push('【相手の捨て牌へのおすすめ行動】');
+
+      if (callDecisions.length === 0) {
+        lines.push('なし');
+      } else {
+        for (const c of callDecisions) {
+          if (c.action === 'ロン') {
+            lines.push(`${c.discard}: ロン`);
+          } else if (c.action === 'ポン' || c.action === 'カン') {
+            lines.push(`${c.discard}: ${c.action}（${c.word}）`);
+          } else {
+            lines.push(`${c.discard}: 何もしない`);
+          }
+        }
+      }
+    }
 
     resultEl.textContent = lines.join('\n');
   } catch (error) {
