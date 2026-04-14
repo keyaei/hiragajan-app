@@ -7,25 +7,47 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>ひらがじゃん判定</h1>
+  <main class="container">
+    <h1>ひらがじゃん判定</h1>
+    <p class="description">
+      手牌・自摸牌・相手の捨て牌から、ツモ / ロン / ポン / カン / 打牌候補を表示します。
+    </p>
 
-  <label for="hand">手牌</label><br>
-  <textarea id="hand" rows="4" cols="40" placeholder="あ い う え お か き く け こ さ し す"></textarea><br><br>
+    <section class="card">
+      <label for="hand">手牌</label>
+      <textarea
+        id="hand"
+        rows="4"
+        placeholder="例: あ し た さ か な と た ん ま ぐ"
+      ></textarea>
 
-  <label for="draw">自摸牌</label><br>
-  <input id="draw" type="text" placeholder="せ"><br><br>
+      <label for="draw">自摸牌</label>
+      <input
+        id="draw"
+        type="text"
+        placeholder="例: ろ"
+      >
 
-  <label for="discards">相手の捨て牌</label><br>
-  <textarea id="discards" rows="4" cols="40" placeholder="た ち つ て と"></textarea><br><br>
+      <label for="discards">相手の捨て牌</label>
+      <textarea
+        id="discards"
+        rows="3"
+        placeholder="例: ろ ん き"
+      ></textarea>
 
-<label>
-  <input id="isOpenHand" type="checkbox">
-  すでに鳴いている
-</label><br><br>
-  
-  <button id="judgeBtn">判定する</button>
+      <label class="checkbox-line">
+        <input id="isOpenHand" type="checkbox">
+        すでに鳴いている
+      </label>
 
-  <pre id="result"></pre>
+      <button id="judgeBtn" type="button">判定する</button>
+    </section>
+
+    <section class="card">
+      <h2>結果</h2>
+      <pre id="result">ここに判定結果が表示されます。</pre>
+    </section>
+  </main>
 
   <script src="app.js"></script>
 </body>
