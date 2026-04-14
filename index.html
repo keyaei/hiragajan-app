@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ひらがじゃん判定</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>ひらがじゃん判定</h1>
+
+  <label for="hand">手牌</label><br>
+  <textarea id="hand" rows="4" cols="40" placeholder="あ い う え お か き く け こ さ し す"></textarea><br><br>
+
+  <label for="draw">自摸牌</label><br>
+  <input id="draw" type="text" placeholder="せ"><br><br>
+
+  <label for="discards">相手の捨て牌</label><br>
+  <textarea id="discards" rows="4" cols="40" placeholder="た ち つ て と"></textarea><br><br>
+
+  <button id="judgeBtn">判定する</button>
+
+  <pre id="result"></pre>
+
+  <script src="app.js"></script>
+</body>
+</html>
