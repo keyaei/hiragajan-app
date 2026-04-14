@@ -27,29 +27,38 @@ function canMakeWord(word, counts) {
   for (const ch of word) {
     need[ch] = (need[ch] || 0) + 1;
   }
+
   for (const ch of Object.keys(need)) {
-    if ((counts[ch] || 0) < need[ch]) return false;
+    if ((counts[ch] || 0) < need[ch]) {
+      return false;
+    }
   }
+
   return true;
 }
 
 function removeWordFromCounts(word, baseCounts) {
   const counts = { ...baseCounts };
+
   for (const ch of word) {
     if (!counts[ch]) return null;
     counts[ch]--;
     if (counts[ch] < 0) return null;
+    if (counts[ch] === 0) delete counts[ch];
   }
+
   return counts;
 }
 
 function countsToChars(counts) {
   const chars = [];
+
   for (const ch of Object.keys(counts)) {
     for (let i = 0; i < counts[ch]; i++) {
       chars.push(ch);
     }
   }
+
   return chars;
 }
 
@@ -59,87 +68,110 @@ function uniqueWords(words) {
 
 function sortWords(words) {
   return [...words].sort((a, b) => {
-    if (b.length !== a.length) return b.length - a.length;
+    if (b.length !== a.length) {
+      return b.length - a.length;
+    }
     return a.localeCompare(b, 'ja');
   });
 }
 
 function getAvailableWords(dictionary, chars) {
   const counts = countChars(chars);
-  const words = (dictionary.words || []).filter(
-    (w) => typeof w === 'string' && canMakeWord(w, counts)
-  );
+  const sourceWords = Array.isArray(dictionary.words) ? dictionary.words : [];
+
+  const words = sourceWords.filter((word) => {
+    return typeof word === 'string' && canMakeWord(word, counts);
+  });
+
   return sortWords(uniqueWords(words));
 }
 
 function groupWords(words) {
   return {
-    two: words.filter(w => w.length === 2),
-    three: words.filter(w => w.length === 3),
-    fourPlus: words.filter(w => w.length >= 4)
+    two: sortWords(words.filter((w) => w.length === 2)),
+    three: sortWords(words.filter((w) => w.length === 3)),
+    fourPlus: sortWords(words.filter((w) => w.length >= 4))
   };
 }
 
-// 雀頭候補（2文字同一）
 function getPairCandidates(chars) {
   const counts = countChars(chars);
   const pairs = [];
+
   for (const ch of Object.keys(counts)) {
     if (counts[ch] >= 2) {
       pairs.push(ch + ch);
     }
   }
+
   return sortWords(pairs);
 }
 
-// 4面子1雀頭をざっくり探索
 function canAgari(chars, dictionary) {
   const counts = countChars(chars);
-  const words = (dictionary.words || [])
-    .filter(w => typeof w === 'string' && w.length >= 2);
+  const words = (dictionary.words || []).filter((w) => {
+    return typeof w === 'string' && w.length >= 2;
+  });
 
   const memo = new Map();
 
   function keyFromState(countsObj, melds, pairUsed) {
     const parts = Object.keys(countsObj)
       .sort()
-      .map(k => `${k}:${countsObj[k]}`)
+      .map((k) => `${k}:${countsObj[k]}`)
       .join('|');
+
     return `${parts}__${melds}__${pairUsed ? 1 : 0}`;
   }
 
   function dfs(currentCounts, melds, pairUsed, path) {
     const remain = countsToChars(currentCounts).length;
     const key = keyFromState(currentCounts, melds, pairUsed);
+
     if (memo.has(key)) return null;
     memo.set(key, true);
 
     if (remain === 0) {
-      if (melds === 4 && pairUsed) return path;
+      if (melds === 4 && pairUsed) {
+        return path;
+      }
       return null;
     }
 
     if (melds > 4) return null;
 
-    // 雀頭をまだ使っていなければ、同一2文字を雀頭として試す
     if (!pairUsed) {
       for (const ch of Object.keys(currentCounts)) {
         if (currentCounts[ch] >= 2) {
           const next = { ...currentCounts };
           next[ch] -= 2;
           if (next[ch] === 0) delete next[ch];
-          const result = dfs(next, melds, true, [...path, { type: 'pair', value: ch + ch }]);
+
+          const result = dfs(
+            next,
+            melds,
+            true,
+            [...path, { type: 'pair', value: ch + ch }]
+          );
+
           if (result) return result;
         }
       }
     }
 
-    // 面子候補
     for (const word of words) {
       if (!canMakeWord(word, currentCounts)) continue;
+
       const next = removeWordFromCounts(word, currentCounts);
       if (!next) continue;
-      const result = dfs(next, melds + 1, pairUsed, [...path, { type: 'meld', value: word }]);
+
+      const result = dfs(
+        next,
+        melds + 1,
+        pairUsed,
+        [...path, { type: 'meld', value: word }]
+      );
+
       if (result) return result;
     }
 
@@ -149,7 +181,6 @@ function canAgari(chars, dictionary) {
   return dfs(counts, 0, false, []);
 }
 
-// 捨て候補評価
 function evaluateDiscards(chars, dictionary) {
   const results = [];
 
@@ -174,13 +205,12 @@ function evaluateDiscards(chars, dictionary) {
     });
   }
 
-  // 同じ文字を複数回評価しない
   const dedup = [];
   const seen = new Set();
+
   for (const r of results) {
-    const key = r.discard;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(r.discard)) continue;
+    seen.add(r.discard);
     dedup.push(r);
   }
 
@@ -188,24 +218,26 @@ function evaluateDiscards(chars, dictionary) {
     if (b.score !== a.score) return b.score - a.score;
     if (b.fourPlus !== a.fourPlus) return b.fourPlus - a.fourPlus;
     if (b.three !== a.three) return b.three - a.three;
+    if (b.two !== a.two) return b.two - a.two;
     return a.discard.localeCompare(b.discard, 'ja');
   });
 
   return dedup;
 }
 
-// 鳴き候補
 function getCallCandidates(handChars, discards, dictionary) {
   const results = [];
   const uniqueDiscards = [...new Set(discards)];
 
   for (const d of uniqueDiscards) {
     const testChars = [...handChars, d];
-    const words = getAvailableWords(dictionary, testChars).filter(w => w.length >= 3);
+    const words = getAvailableWords(dictionary, testChars).filter((w) => w.length >= 3);
 
-    const usable = words.filter(word => {
+    const usable = words.filter((word) => {
       const need = {};
-      for (const ch of word) need[ch] = (need[ch] || 0) + 1;
+      for (const ch of word) {
+        need[ch] = (need[ch] || 0) + 1;
+      }
       return (need[d] || 0) >= 1;
     });
 
@@ -234,6 +266,7 @@ document.getElementById('judgeBtn').addEventListener('click', async () => {
     const hand = normalizeChars(document.getElementById('hand').value);
     const draw = normalizeChars(document.getElementById('draw').value);
     const discards = normalizeChars(document.getElementById('discards').value);
+    const isOpenHand = document.getElementById('isOpenHand').checked;
 
     const allChars = [...hand, ...draw];
 
@@ -251,23 +284,29 @@ document.getElementById('judgeBtn').addEventListener('click', async () => {
     const discardRanks = evaluateDiscards(allChars, dictionary);
     const callCandidates = getCallCandidates(hand, discards, dictionary);
 
-    const discardLines = discardRanks.slice(0, 10).map((r, index) =>
-      `${index + 1}. ${r.discard} を切る  score=${r.score} / 4文字以上:${r.fourPlus} / 3文字:${r.three} / 2文字:${r.two}`
-    );
+    const discardLines = discardRanks.slice(0, 10).map((r, index) => {
+      return `${index + 1}. ${r.discard} を切る  score=${r.score} / 4文字以上:${r.fourPlus} / 3文字:${r.three} / 2文字:${r.two}`;
+    });
 
-    const callLines = callCandidates.map(c =>
-      `${c.discard} で鳴ける候補: ${c.words.join('、')}`
-    );
+    const callLines = callCandidates.map((c) => {
+      return `${c.discard} で鳴ける候補: ${c.words.join('、')}`;
+    });
 
-    const agariLines = agariPath
-      ? agariPath.map(x => `${x.type === 'pair' ? '雀頭' : '面子'}: ${x.value}`)
-      : ['まだ上がり形ではありません'];
+    let agariLines;
+    if (agariPath) {
+      agariLines = agariPath.map((x) => {
+        return `${x.type === 'pair' ? '雀頭' : '面子'}: ${x.value}`;
+      });
+    } else {
+      agariLines = ['まだ上がり形ではありません'];
+    }
 
     const lines = [
       `手牌: ${hand.join(' ') || 'なし'}`,
       `自摸牌: ${draw.join(' ') || 'なし'}`,
       `使用可能文字: ${allChars.join(' ') || 'なし'}`,
       `相手の捨て牌: ${discards.join(' ') || 'なし'}`,
+      `鳴き状態: ${isOpenHand ? 'あり（ツモ専）' : 'なし'}`,
       '',
       formatSection('ツモ上がり判定', agariLines),
       '',
